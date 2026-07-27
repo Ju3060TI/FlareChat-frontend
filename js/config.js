@@ -2,8 +2,8 @@
 // Zentrale Konfiguration für FlareChat
 
 export const CONFIG = {
-  // Die Basis-URL deines Cloudflare Workers
-  API_BASE: 'https://flarechat.ju-labs.workers.dev',
+  // ✅ NEUE URL (dein frisch deployter Worker)
+  API_BASE: 'https://flarechatbackend.ju-labs.workers.dev',
 
   // Polling-Intervall in Millisekunden (wie gehabt)
   POLL_INTERVAL: 350,

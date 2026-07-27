@@ -1,11 +1,12 @@
 // frontend/js/main.js
-// FlareChat - Einstiegspunkt mit sauberer Ordnerstruktur
+// FlareChat - Einstiegspunkt mit WebSocket-Unterstützung
 
 import { CONFIG } from './config.js';
 import { apiFetch } from './api/client.js';
 import { initTarnung } from './ui/tarnung.js';
 import { initTabs } from './ui/tabs.js';
-import { startPolling } from './chat/polling.js';
+import { startPolling, stopPolling } from './chat/polling.js';
+import { connectWebSocket, closeWebSocket } from './chat/wsClient.js';
 
 // ============================================================
 // STATE (Zustand, den wir im ganzen Frontend brauchen)
@@ -16,6 +17,20 @@ const state = {
   currentTab: 'friends',
   intervalId: null,
   clickCount: 0,
+  wsConnected: false,
+};
+
+// ============================================================
+// GLOBALE HELFER (für inline onclick in HTML und WebSocket)
+// ============================================================
+window.addMessageToChat = addMessageToChat;
+window.stopPolling = () => {
+  stopPolling(state);
+  console.log('🛑 Polling gestoppt (WebSocket aktiv)');
+};
+window.startPolling = () => {
+  startPolling(state, apiFetch, loadFriends, loadGroups, fetchNewMessages);
+  console.log('▶️ Polling gestartet (WebSocket getrennt)');
 };
 
 // ============================================================
@@ -57,11 +72,46 @@ function showChat() {
 
   loadFriends();
   loadGroups();
+
+  // WebSocket starten (falls verfügbar)
+  connectWebSocket(state.username, {
+    onOpen: () => {
+      state.wsConnected = true;
+      stopPolling(state); // Polling ausschalten
+    },
+    onClose: () => {
+      state.wsConnected = false;
+      startPolling(state, apiFetch, loadFriends, loadGroups, fetchNewMessages); // Polling als Fallback
+    },
+    onMessage: (data) => {
+      // Nachricht vom Server via WebSocket
+      if (data.type === 'new_message' || data.type === 'new_group_message') {
+        // Prüfen, ob wir gerade in dem Chat sind
+        const activeTab = document.querySelector('.tab-btn.active')?.dataset.tab;
+        const friendSelect = document.getElementById('friend-select');
+        const groupSelect = document.getElementById('group-select');
+
+        if (data.type === 'new_message') {
+          // Nur anzeigen, wenn wir mit dem Absender chatten
+          if (activeTab === 'friends' && friendSelect.value === data.sender) {
+            addMessageToChat(data.sender, data.text, null);
+          }
+        } else {
+          // Gruppen-Nachricht
+          if (activeTab === 'groups' && groupSelect.value === data.groupId) {
+            addMessageToChat(data.sender, data.text, null);
+          }
+        }
+      }
+    }
+  });
+
+  // Fallback: Polling starten (falls WebSocket nicht lädt)
   startPolling(state, apiFetch, loadFriends, loadGroups, fetchNewMessages);
 }
 
 // ============================================================
-// FREUNDE LADEN (aus script.js übernommen)
+// FREUNDE LADEN
 // ============================================================
 async function loadFriends() {
   const username = state.username;
@@ -86,7 +136,6 @@ async function loadFriends() {
     if (exists) friendSelect.value = currentSelection;
   }
 
-  // Anfragen anzeigen
   const requestsList = document.getElementById('requests-list');
   const requestsArea = document.getElementById('requests-area');
   if (requestsList && requestsArea) {
@@ -140,7 +189,10 @@ async function loadGroups() {
 // ============================================================
 // NACHRICHTEN LADEN (Wird vom Polling aufgerufen)
 // ============================================================
-async function fetchNewMessages() {
+export async function fetchNewMessages() {
+  // Wenn WebSocket aktiv ist, machen wir kein Polling
+  if (state.wsConnected) return;
+
   const activeTab = document.querySelector('.tab-btn.active')?.dataset.tab;
   const friendSelect = document.getElementById('friend-select');
   const groupSelect = document.getElementById('group-select');

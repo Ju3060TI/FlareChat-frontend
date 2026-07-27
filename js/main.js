@@ -1,11 +1,13 @@
 // frontend/js/main.js
-// FlareChat - Einstiegspunkt mit WebSocket-Unterstützung
+// FlareChat - Einstiegspunkt mit WebSocket & Polling (beide im chat/ Ordner)
 
 import { CONFIG } from './config.js';
 import { apiFetch } from './api/client.js';
 import { initTarnung } from './ui/tarnung.js';
 import { initTabs } from './ui/tabs.js';
-import { startPolling, stopPolling } from './chat/polling.js';
+
+// ✅ Hier sind die Imports jetzt auf den chat/ Ordner angepasst:
+import { startPolling, stopPolling, setWebSocketStatus } from './chat/polling.js';
 import { connectWebSocket, closeWebSocket } from './chat/wsClient.js';
 
 // ============================================================
@@ -21,17 +23,12 @@ const state = {
 };
 
 // ============================================================
-// GLOBALE HELFER (für inline onclick in HTML und WebSocket)
+// GLOBALE HELFER (für inline onclick in HTML und fallback polling)
 // ============================================================
 window.addMessageToChat = addMessageToChat;
-window.stopPolling = () => {
-  stopPolling(state);
-  console.log('🛑 Polling gestoppt (WebSocket aktiv)');
-};
-window.startPolling = () => {
-  startPolling(state, apiFetch, loadFriends, loadGroups, fetchNewMessages);
-  console.log('▶️ Polling gestartet (WebSocket getrennt)');
-};
+window.loadFriends = loadFriends;
+window.loadGroups = loadGroups;
+window.fetchNewMessages = fetchNewMessages;
 
 // ============================================================
 // LOGIN (D1-Login – bleibt vorerst erhalten)
@@ -70,34 +67,34 @@ function showChat() {
   document.getElementById('chat-section').style.display = 'flex';
   document.getElementById('display-user').innerText = state.username;
 
+  // Funktionen global verfügbar machen (für polling.js Fallback)
+  window.loadFriends = loadFriends;
+  window.loadGroups = loadGroups;
+  window.fetchNewMessages = fetchNewMessages;
+
   loadFriends();
   loadGroups();
 
-  // WebSocket starten (falls verfügbar)
+  // WebSocket starten (mit Callbacks)
   connectWebSocket(state.username, {
     onOpen: () => {
-      state.wsConnected = true;
-      stopPolling(state); // Polling ausschalten
+      console.log('✅ WebSocket aktiv - Polling pausiert');
     },
     onClose: () => {
-      state.wsConnected = false;
-      startPolling(state, apiFetch, loadFriends, loadGroups, fetchNewMessages); // Polling als Fallback
+      console.log('⚠️ WebSocket getrennt - Polling übernimmt');
     },
     onMessage: (data) => {
       // Nachricht vom Server via WebSocket
       if (data.type === 'new_message' || data.type === 'new_group_message') {
-        // Prüfen, ob wir gerade in dem Chat sind
         const activeTab = document.querySelector('.tab-btn.active')?.dataset.tab;
         const friendSelect = document.getElementById('friend-select');
         const groupSelect = document.getElementById('group-select');
 
         if (data.type === 'new_message') {
-          // Nur anzeigen, wenn wir mit dem Absender chatten
           if (activeTab === 'friends' && friendSelect.value === data.sender) {
             addMessageToChat(data.sender, data.text, null);
           }
         } else {
-          // Gruppen-Nachricht
           if (activeTab === 'groups' && groupSelect.value === data.groupId) {
             addMessageToChat(data.sender, data.text, null);
           }
@@ -106,8 +103,8 @@ function showChat() {
     }
   });
 
-  // Fallback: Polling starten (falls WebSocket nicht lädt)
-  startPolling(state, apiFetch, loadFriends, loadGroups, fetchNewMessages);
+  // Fallback: Polling starten (nur, wenn WebSocket nicht verbunden ist)
+  startPolling(); 
 }
 
 // ============================================================
@@ -191,6 +188,8 @@ async function loadGroups() {
 // ============================================================
 export async function fetchNewMessages() {
   // Wenn WebSocket aktiv ist, machen wir kein Polling
+  // (Das wird von polling.js bereits über setWebSocketStatus gesteuert)
+  // Aber zur Sicherheit nochmal prüfen:
   if (state.wsConnected) return;
 
   const activeTab = document.querySelector('.tab-btn.active')?.dataset.tab;

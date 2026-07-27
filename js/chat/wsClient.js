@@ -1,64 +1,103 @@
 // frontend/js/chat/wsClient.js
-// WebSocket-Client für FlareChat
+// WebSocket-Client mit automatischem Fallback auf Polling
+
+import { setWebSocketStatus } from '../polling.js';
 
 let ws = null;
+let reconnectTimer = null;
+let username = null;
+let callbacks = {};
 
-export function connectWebSocket(username) {
-  if (!username) return;
+/**
+ * Baut eine WebSocket-Verbindung auf.
+ * @param {string} user - Der eingeloggte Username
+ * @param {object} cb - Callback-Funktionen (onMessage, onOpen, onClose)
+ */
+export function connectWebSocket(user, cb = {}) {
+  username = user;
+  callbacks = cb;
 
-  // Alte Verbindung schließen
+  // Falls bereits eine Verbindung offen ist, schließen
   if (ws) {
     ws.close();
     ws = null;
   }
 
-  // Neue Verbindung aufbauen (HTTP → WS Protokoll)
-  const wsUrl = `wss://flarechatbackend.ju-labs.workers.dev/ws?username=${encodeURIComponent(username)}`;
+  // WebSocket-URL aufbauen (wss:// für HTTPS)
+  const wsUrl = `wss://flarechatbackend.ju-labs.workers.dev/ws?username=${encodeURIComponent(user)}`;
   
-  ws = new WebSocket(wsUrl);
+  try {
+    ws = new WebSocket(wsUrl);
 
-  ws.onopen = () => {
-    console.log('🟢 WebSocket verbunden!');
-    // Optional: Polling stoppen
-    if (window.stopPolling) window.stopPolling();
-  };
+    // ============================================================
+    // ON OPEN - Verbindung erfolgreich
+    // ============================================================
+    ws.onopen = () => {
+      console.log('🟢 WebSocket verbunden!');
+      setWebSocketStatus(true); // Polling stoppen
+      if (callbacks.onOpen) callbacks.onOpen();
+    };
 
-  ws.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data);
-      console.log('📩 WebSocket Nachricht:', data);
+    // ============================================================
+    // ON MESSAGE - Neue Nachricht vom Server
+    // ============================================================
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        console.log('📩 WebSocket Nachricht:', data);
 
-      if (data.type === 'new_message') {
-        // Nachricht im Chat anzeigen (rufe deine Funktion auf)
-        if (window.addMessageToChat) {
-          window.addMessageToChat(data.sender, data.text, null);
+        if (callbacks.onMessage) {
+          callbacks.onMessage(data);
         }
+      } catch (e) {
+        console.error('WebSocket Parsing-Fehler:', e);
       }
-      if (data.type === 'new_group_message') {
-        // Gruppen-Nachricht anzeigen
-        if (window.addMessageToChat) {
-          window.addMessageToChat(data.sender, data.text, null);
-        }
+    };
+
+    // ============================================================
+    // ON ERROR - Verbindungsfehler
+    // ============================================================
+    ws.onerror = (error) => {
+      console.error('🔴 WebSocket Fehler:', error);
+      // Bei Fehler nicht sofort schließen, sondern abwarten
+    };
+
+    // ============================================================
+    // ON CLOSE - Verbindung getrennt (startet Fallback)
+    // ============================================================
+    ws.onclose = (event) => {
+      console.log(`🔴 WebSocket getrennt (Code: ${event.code}). Polling wird aktiviert.`);
+      setWebSocketStatus(false); // Polling starten
+
+      if (callbacks.onClose) callbacks.onClose();
+
+      // Versuche nach 5 Sekunden erneut zu verbinden (falls nicht manuell geschlossen)
+      if (event.code !== 1000) { // 1000 = normaler Close
+        if (reconnectTimer) clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(() => {
+          console.log('🔄 Versuche WebSocket-Neuverbindung...');
+          connectWebSocket(username, callbacks);
+        }, 5000); // 5 Sekunden warten
       }
-    } catch (e) {
-      console.error('WebSocket Nachricht Fehler:', e);
-    }
-  };
+    };
 
-  ws.onerror = (error) => {
-    console.error('🔴 WebSocket Fehler:', error);
-  };
-
-  ws.onclose = () => {
-    console.log('🔴 WebSocket getrennt. Polling wird fortgesetzt.');
-    if (window.startPolling) window.startPolling();
-    ws = null;
-  };
+  } catch (error) {
+    console.error('WebSocket Initialisierungsfehler:', error);
+    setWebSocketStatus(false); // Fallback auf Polling
+  }
 }
 
+/**
+ * Schließt die WebSocket-Verbindung manuell.
+ */
 export function closeWebSocket() {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
   if (ws) {
-    ws.close();
+    ws.close(1000); // 1000 = Normaler, sauberer Close
     ws = null;
   }
+  setWebSocketStatus(false);
 }

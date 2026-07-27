@@ -1,7 +1,11 @@
 // frontend/js/main.js
-// FlareChat - Neuer Einstiegspunkt
+// FlareChat - Einstiegspunkt mit sauberer Ordnerstruktur
 
 import { CONFIG } from './config.js';
+import { apiFetch } from './api/client.js';
+import { initTarnung } from './ui/tarnung.js';
+import { initTabs } from './ui/tabs.js';
+import { startPolling } from './chat/polling.js';
 
 // ============================================================
 // STATE (Zustand, den wir im ganzen Frontend brauchen)
@@ -13,62 +17,6 @@ const state = {
   intervalId: null,
   clickCount: 0,
 };
-
-// ============================================================
-// API-CLIENT (Zentrale Fetch-Funktion)
-// ============================================================
-async function apiFetch(endpoint, method = 'POST', bodyData = null) {
-  const headers = { 'Content-Type': 'application/json' };
-  const options = { method, headers };
-  if (bodyData) options.body = JSON.stringify(bodyData);
-
-  try {
-    const response = await fetch(`${CONFIG.API_BASE}${endpoint}`, options);
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`HTTP ${response.status}: ${errorText}`);
-    }
-    const text = await response.text();
-    if (!text) return null;
-    try { return JSON.parse(text); } catch { return text; }
-  } catch (error) {
-    console.error(`[API] Fehler bei ${endpoint}:`, error);
-    return null;
-  }
-}
-
-// ============================================================
-// TARNUNG (Pixel-Gesicht + 10 Klicks)
-// ============================================================
-function initTarnung() {
-  const pixelFace = document.getElementById('pixelFace');
-  const tarnung = document.getElementById('tarnung');
-  const lavaBg = document.querySelector('.lava-bg');
-  const appBox = document.getElementById('app-box');
-
-  if (!pixelFace) return;
-
-  pixelFace.addEventListener('click', (e) => {
-    e.stopPropagation();
-    state.clickCount++;
-    console.log(`👆 Pixel: ${state.clickCount}/10`);
-
-    if (state.clickCount >= 10) {
-      tarnung.style.display = 'none';
-      if (lavaBg) lavaBg.style.display = 'block';
-      appBox.classList.add('active');
-      appBox.style.display = 'flex';
-      pixelFace.style.display = 'none';
-
-      // Wenn schon eingeloggt, Chat sofort zeigen
-      if (state.username) {
-        showChat();
-      } else {
-        document.getElementById('login-section').style.display = 'flex';
-      }
-    }
-  });
-}
 
 // ============================================================
 // LOGIN (D1-Login – bleibt vorerst erhalten)
@@ -109,7 +57,7 @@ function showChat() {
 
   loadFriends();
   loadGroups();
-  startTimer();
+  startPolling(state, apiFetch, loadFriends, loadGroups, fetchNewMessages);
 }
 
 // ============================================================
@@ -190,25 +138,7 @@ async function loadGroups() {
 }
 
 // ============================================================
-// TIMER (350ms Polling)
-// ============================================================
-function startTimer() {
-  if (state.intervalId) clearInterval(state.intervalId);
-  state.intervalId = setInterval(() => {
-    const chatBox = document.getElementById('chat-box');
-    const isChatOpen = chatBox && chatBox.style.display !== 'none' && chatBox.children.length > 0;
-
-    if (isChatOpen) {
-      fetchNewMessages();
-    } else {
-      loadFriends();
-      loadGroups();
-    }
-  }, CONFIG.POLL_INTERVAL);
-}
-
-// ============================================================
-// NACHRICHTEN LADEN
+// NACHRICHTEN LADEN (Wird vom Polling aufgerufen)
 // ============================================================
 async function fetchNewMessages() {
   const activeTab = document.querySelector('.tab-btn.active')?.dataset.tab;
@@ -285,21 +215,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Tabs
-  document.querySelectorAll('.tab-btn').forEach(tab => {
-    tab.addEventListener('click', function () {
-      document.querySelectorAll('.tab-btn').forEach(t => t.classList.remove('active'));
-      this.classList.add('active');
-      const friendSelect = document.getElementById('friend-select');
-      const groupSelect = document.getElementById('group-select');
-      if (this.dataset.tab === 'friends') {
-        friendSelect.style.display = 'block';
-        groupSelect.style.display = 'none';
-      } else {
-        friendSelect.style.display = 'none';
-        groupSelect.style.display = 'block';
-      }
-    });
-  });
+  initTabs();
 
   // Freund/Gruppe geändert → Chat leeren
   document.getElementById('friend-select')?.addEventListener('change', () => {

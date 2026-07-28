@@ -173,70 +173,6 @@ async function loadGroups() {
 }
 
 // ============================================================
-// NACHRICHTEN LADEN (Wird vom Polling aufgerufen)
-// ============================================================
-export async function fetchNewMessages() {
-  // Wenn WebSocket aktiv ist, machen wir kein Polling
-  // (Das wird von polling.js bereits über setWebSocketStatus gesteuert)
-  // Aber zur Sicherheit nochmal prüfen:
-  if (state.wsConnected) return;
-
-  const activeTab = document.querySelector('.tab-btn.active')?.dataset.tab;
-  const friendSelect = document.getElementById('friend-select');
-  const groupSelect = document.getElementById('group-select');
-  const chatBox = document.getElementById('chat-box');
-
-  if (!chatBox) return;
-
-  let messages = [];
-  if (activeTab === 'friends') {
-    const friend = friendSelect.value;
-    if (!friend) return;
-    const data = await apiFetch('/messages', 'POST', { myUsername: state.username, otherUsername: friend });
-    if (data) messages = data;
-  } else {
-    const groupId = groupSelect.value;
-    if (!groupId) return;
-    const data = await apiFetch('/group-messages', 'POST', { groupId });
-    if (data) messages = data;
-  }
-
-  const currentCount = chatBox.children.length;
-  if (messages.length > currentCount) {
-    messages.slice(currentCount).forEach(m => {
-      addMessageToChat(m.sender, m.text, m.avatar_url);
-    });
-  }
-}
-
-// ============================================================
-// NACHRICHT ANZEIGEN (Bubbles)
-// ============================================================
-function addMessageToChat(sender, text, avatarUrl) {
-  const chatBox = document.getElementById('chat-box');
-  if (!chatBox) return;
-
-  const div = document.createElement('div');
-  const isMe = sender === state.username;
-  div.className = `msg ${isMe ? 'me' : 'other'}`;
-
-  if (!avatarUrl) {
-    avatarUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(sender)}&background=ff4500&color=000`;
-  }
-
-  div.innerHTML = `
-    <div class="msg-sender">
-      <img src="${avatarUrl}" class="msg-avatar" onerror="this.src='https://ui-avatars.com/api/?name=${encodeURIComponent(sender)}&background=ff4500&color=000'">
-      <strong>${sender}</strong>
-    </div>
-    <div class="msg-text">${text}</div>
-  `;
-
-  chatBox.appendChild(div);
-  chatBox.scrollTop = chatBox.scrollHeight;
-}
-
-// ============================================================
 // INIT (Wird beim Laden ausgeführt)
 // ============================================================
 document.addEventListener('DOMContentLoaded', () => {
@@ -305,16 +241,6 @@ document.addEventListener('DOMContentLoaded', () => {
         sendBtn.click();
       }
     });
-  }
-
-  // ============================================================
-  // 📷 BILD-UPLOAD (optional)
-  // ============================================================
-  const imageBtn = document.getElementById('image-btn');
-  const fileInput = document.getElementById('file-input');
-  if (imageBtn && fileInput) {
-    imageBtn.addEventListener('click', () => fileInput.click());
-    // Hier kannst du deine bestehende Upload-Logik einfügen
   }
 });
 

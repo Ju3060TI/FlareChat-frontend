@@ -1,7 +1,8 @@
 // frontend/js/chat/wsClient.js
 // WebSocket-Client mit automatischem Fallback auf Polling
 
-import { setWebSocketStatus } from '../polling.js';
+// ✅ Import aus demselben Ordner
+import { setWebSocketStatus } from './polling.js';
 
 let ws = null;
 let reconnectTimer = null;

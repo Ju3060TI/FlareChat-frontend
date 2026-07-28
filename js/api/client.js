@@ -1,7 +1,7 @@
 // frontend/js/client.js
 // Zentraler API-Client für alle Backend-Anfragen
 
-import { CONFIG } from './config.js';
+import { CONFIG } from '../config.js';
 
 export async function apiFetch(endpoint, method = 'POST', bodyData = null) {
   const headers = { 'Content-Type': 'application/json' };

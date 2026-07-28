@@ -10,6 +10,9 @@ import { initTabs } from './ui/tabs.js';
 import { startPolling, stopPolling, setWebSocketStatus } from './chat/polling.js';
 import { connectWebSocket, closeWebSocket } from './chat/wsClient.js';
 
+// ✅ NEU: Die Nachrichten-Logik importieren
+import { sendMessage, addMessageToChat, fetchNewMessages, handleWebSocketMessage } from './chat/messages.js';
+
 // ============================================================
 // STATE (Zustand, den wir im ganzen Frontend brauchen)
 // ============================================================
@@ -25,10 +28,10 @@ const state = {
 // ============================================================
 // GLOBALE HELFER (für inline onclick in HTML und fallback polling)
 // ============================================================
-window.addMessageToChat = addMessageToChat;
+window.addMessageToChat = (sender, text, avatarUrl) => addMessageToChat(sender, text, avatarUrl, state);
 window.loadFriends = loadFriends;
 window.loadGroups = loadGroups;
-window.fetchNewMessages = fetchNewMessages;
+window.fetchNewMessages = () => fetchNewMessages(state);
 
 // ============================================================
 // LOGIN (D1-Login – bleibt vorerst erhalten)
@@ -70,7 +73,7 @@ function showChat() {
   // Funktionen global verfügbar machen (für polling.js Fallback)
   window.loadFriends = loadFriends;
   window.loadGroups = loadGroups;
-  window.fetchNewMessages = fetchNewMessages;
+  window.fetchNewMessages = () => fetchNewMessages(state);
 
   loadFriends();
   loadGroups();
@@ -84,22 +87,8 @@ function showChat() {
       console.log('⚠️ WebSocket getrennt - Polling übernimmt');
     },
     onMessage: (data) => {
-      // Nachricht vom Server via WebSocket
-      if (data.type === 'new_message' || data.type === 'new_group_message') {
-        const activeTab = document.querySelector('.tab-btn.active')?.dataset.tab;
-        const friendSelect = document.getElementById('friend-select');
-        const groupSelect = document.getElementById('group-select');
-
-        if (data.type === 'new_message') {
-          if (activeTab === 'friends' && friendSelect.value === data.sender) {
-            addMessageToChat(data.sender, data.text, null);
-          }
-        } else {
-          if (activeTab === 'groups' && groupSelect.value === data.groupId) {
-            addMessageToChat(data.sender, data.text, null);
-          }
-        }
-      }
+      // Nachricht vom Server via WebSocket an messages.js weiterleiten
+      handleWebSocketMessage(data, state);
     }
   });
 
@@ -277,6 +266,56 @@ document.addEventListener('DOMContentLoaded', () => {
     const chatBox = document.getElementById('chat-box');
     if (chatBox) { chatBox.innerHTML = ''; fetchNewMessages(); }
   });
+
+  // ============================================================
+  // 📨 SENDE-LOGIK (Jetzt mit import aus messages.js)
+  // ============================================================
+  const sendBtn = document.getElementById('send-btn');
+  const msgInput = document.getElementById('msg-input');
+
+  if (sendBtn && msgInput) {
+    sendBtn.addEventListener('click', async function () {
+      const text = msgInput.value.trim();
+      if (!text) return;
+
+      const activeTab = document.querySelector('.tab-btn.active')?.dataset.tab;
+      const friendSelect = document.getElementById('friend-select');
+      const groupSelect = document.getElementById('group-select');
+
+      if (activeTab === 'friends') {
+        const receiver = friendSelect.value;
+        if (!receiver) { alert('Bitte erst einen Freund auswählen!'); return; }
+        // Senden an messages.js delegieren
+        await sendMessage(text, receiver, 'friend', state);
+      } else {
+        const groupId = groupSelect.value;
+        if (!groupId) { alert('Bitte erst eine Gruppe auswählen!'); return; }
+        // Senden an messages.js delegieren
+        await sendMessage(text, groupId, 'group', state);
+      }
+
+      // Eingabefeld leeren
+      msgInput.value = '';
+    });
+
+    // Enter-Taste
+    msgInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendBtn.click();
+      }
+    });
+  }
+
+  // ============================================================
+  // 📷 BILD-UPLOAD (optional)
+  // ============================================================
+  const imageBtn = document.getElementById('image-btn');
+  const fileInput = document.getElementById('file-input');
+  if (imageBtn && fileInput) {
+    imageBtn.addEventListener('click', () => fileInput.click());
+    // Hier kannst du deine bestehende Upload-Logik einfügen
+  }
 });
 
 // ============================================================

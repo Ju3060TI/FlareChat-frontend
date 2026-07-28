@@ -1,44 +1,124 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Page Not Found - FlareChat</title>
-    <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
+    <!-- LAVA HINTERGRUND -->
     <div class="lava-bg"></div>
 
-    <div id="app">
-        <!-- HEADER -->
-        <header id="header">
-            <div class="logo">
-                <span class="logo-icon">🔥</span>
-                <h1>FLARECHAT</h1>
-            </div>
-            <div id="user-status">
-                <span class="status-dot online"></span>
-                <span id="username">Gast</span>
-            </div>
-        </header>
-
-        <!-- HAUPTBEREICH -->
-        <main id="main">
-            <section id="welcome">
-                <div class="welcome-icon">💬</div>
-                <h2>Willkommen bei FlareChat!</h2>
-                <p>
-                    Dein Echtzeit-Messenger im Lava-Design.<br />
-                    Melde dich an oder erstelle einen Account.
-                </p>
-                <div class="welcome-actions">
-                    <a href="/login" class="btn-primary">🔐 Anmelden</a>
-                    <a href="/register" class="btn-outline">📝 Registrieren</a>
-                </div>
-            </section>
-        </main>
+    <!-- TARNUNG: FEHLERSEITE -->
+    <div class="error-container" id="tarnung">
+        <div class="icon-area">
+            <span class="page-icon">📄</span>
+        </div>
+        <div class="error-title">Die Website ist nicht erreichbar</div>
+        <div class="error-subtext">
+            Die Server-IP-Adresse von <strong>flarechat.onrender.com</strong> wurde nicht gefunden.
+        </div>
+        <div class="suggestions-box">
+            <div class="suggestions-title">Versuche Folgendes:</div>
+            <ul class="suggestions-list">
+                <li>Verbindung prüfen</li>
+                <li>Proxy, Firewall und DNS-Konfiguration prüfen</li>
+                <li>Verbindungsdiagnose ausführen</li>
+            </ul>
+        </div>
+        <div class="error-code-section">
+            <span class="error-code">ERR_NAME_NOT_RESOLVED</span>
+        </div>
+        <div class="buttons-container">
+            <button class="btn-details" id="detailsBtn">Details</button>
+            <button class="btn-reload" id="reloadBtn">Neu laden</button>
+        </div>
+        <div class="dns-explanation">
+            Das bedeutet im Klartext, dass der Browser die Domain „flarechat.onrender.com" im Internet nicht finden kann –<br>
+            entweder weil die Adresse falsch getippt wurde, die Website nicht mehr existiert oder es ein Problem mit deinem Internet-DNS-Server gibt.
+        </div>
     </div>
 
+    <!-- PIXEL-GESICHT -->
+    <div class="pixel-face" id="pixelFace">
+        <canvas id="pixelCanvas" width="16" height="16"></canvas>
+    </div>
+
+    <!-- APP BOX -->
+    <div id="app-box">
+        <!-- LOGIN -->
+        <div id="login-section">
+            <h2>🌋 FlareChat</h2>
+            <div id="form-title">🔐 Anmelden</div>
+            <input id="username" placeholder="Username" />
+            <input id="password" type="password" placeholder="Passwort" />
+            <button id="login-btn">Einloggen</button>
+            <button id="register-btn">Registrieren</button>
+            <div id="status-msg"></div>
+        </div>
+
+        <!-- CHAT -->
+        <div id="chat-section">
+            <div class="header-bar">
+                <h2>🌋 <span id="display-user"></span></h2>
+                <div style="display: flex; gap: 8px;">
+                    <button id="settings-btn">⚙️</button>
+                    <button id="logout-btn" class="logout-btn">Tarnung</button>
+                </div>
+            </div>
+
+            <div class="tab-switcher">
+                <button class="tab-btn active" data-tab="friends">👥 Freunde</button>
+                <button class="tab-btn" data-tab="groups">👪 Gruppen</button>
+            </div>
+
+            <div class="flex-row">
+                <select id="friend-select"><option value="">Freund auswählen...</option></select>
+                <select id="group-select" style="display:none;"><option value="">Gruppe auswählen...</option></select>
+                <input id="add-input" placeholder="Username oder 6-stellige ID..." />
+                <button id="action-btn">+ Hinzufügen</button>
+            </div>
+
+            <div id="requests-area">
+                <strong>📩 Offene Anfragen:</strong>
+                <div id="requests-list"></div>
+            </div>
+
+            <div id="chat-box"></div>
+
+            <div class="input-row-wrapper">
+                <div class="emoji-bar">
+                    <span class="emoji-btn">😀</span><span class="emoji-btn">😂</span><span class="emoji-btn">❤️</span>
+                    <span class="emoji-btn">🔥</span><span class="emoji-btn">👍</span><span class="emoji-btn">😎</span>
+                    <span class="emoji-btn">🥳</span><span class="emoji-btn">🤯</span><span class="emoji-btn">👀</span>
+                </div>
+                <div class="input-row">
+                    <input id="msg-input" placeholder="Nachricht schreiben..." />
+                    <input type="file" id="file-input" accept="image/*" style="display: none;" />
+                    <button id="image-btn">📷</button>
+                    <button id="send-btn">Senden</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SETTINGS POPUP -->
+    <div id="settings-popup">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <h3>⚙️ Einstellungen</h3>
+            <button id="close-settings">✕</button>
+        </div>
+        <div><label style="font-size: 0.9rem;">Neuer Username</label><input id="new-username" placeholder="Neuer Username..." /></div>
+        <div><label style="font-size: 0.9rem;">Chat-Hintergrund (Bild-URL)</label><input id="new-bg" placeholder="https://..." /></div>
+        <div><label style="font-size: 0.9rem;">Profilbild (URL)</label><input id="new-avatar" placeholder="https://..." /></div>
+        <div><label style="font-size: 0.9rem;">E-Mail (für Gmail-Benachrichtigungen)</label><input id="new-email" placeholder="deine@email.com" /></div>
+        <button id="save-settings">Speichern</button>
+        <div id="settings-status" style="margin-top: 10px; font-size: 0.9em; color: #ff6347;"></div>
+    </div>
+
+    <!-- ✅ NUR DIESER EINE SCRIPT-TAG BLEIBT! -->
+    <script type="module" src="js/main.js"></script>
 </body>
 </html>

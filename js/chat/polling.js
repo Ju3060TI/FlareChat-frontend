@@ -1,4 +1,4 @@
-// frontend/js/polling.js
+// frontend/js/chat/polling.js
 // Intelligenter Polling-Manager mit Verbindungs-Wiederherstellung
 
 let intervalId = null;

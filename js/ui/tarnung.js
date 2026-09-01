@@ -1,36 +1,89 @@
-// frontend/js/tarnung.js
-// Pixel-Gesicht + 10 Klicks zum Öffnen des Chats
+// js/ui/tarnung.js
+// Tarnungs-Feature – zeigt eine Fake-Fehlerseite an
 
 export function initTarnung() {
-  const pixelFace = document.getElementById('pixelFace');
   const tarnung = document.getElementById('tarnung');
-  const lavaBg = document.querySelector('.lava-bg');
   const appBox = document.getElementById('app-box');
+  const reloadBtn = document.getElementById('reloadBtn');
+  const detailsBtn = document.getElementById('detailsBtn');
 
-  if (!pixelFace) return;
+  // ============================================================
+  // Tarnung ANZEIGEN (wird von main.js aufgerufen)
+  // ============================================================
+  window.showTarnung = function() {
+    console.log('🕵️ Tarnung aktiviert – zeige Fehlerseite');
+    
+    // Tarnung einblenden
+    if (tarnung) {
+      tarnung.style.display = 'flex';
+      tarnung.style.zIndex = '9999';
+    }
+    
+    // App-Box ausblenden
+    if (appBox) {
+      appBox.style.display = 'none';
+      appBox.classList.remove('active');
+    }
+  };
 
-  let clickCount = 0;
-
-  pixelFace.addEventListener('click', (e) => {
-    e.stopPropagation();
-    clickCount++;
-    console.log(`👆 Pixel: ${clickCount}/10`);
-
-    if (clickCount >= 10) {
+  // ============================================================
+  // Tarnung AUSBLENDEN (wenn auf "Neu laden" geklickt wird)
+  // ============================================================
+  window.hideTarnung = function() {
+    console.log('🔄 Tarnung deaktiviert – zeige App');
+    
+    // Tarnung ausblenden
+    if (tarnung) {
       tarnung.style.display = 'none';
-      if (lavaBg) lavaBg.style.display = 'block';
-      appBox.classList.add('active');
+    }
+    
+    // App-Box einblenden
+    if (appBox) {
       appBox.style.display = 'flex';
-      pixelFace.style.display = 'none';
+      appBox.classList.add('active');
+    }
+  };
 
-      // Prüfen, ob schon eingeloggt
-      const username = localStorage.getItem('username');
-      if (username) {
-        // Event auslösen, damit main.js den Chat startet
-        window.dispatchEvent(new CustomEvent('flarechat:ready'));
-      } else {
-        document.getElementById('login-section').style.display = 'flex';
+  // ============================================================
+  // EVENT-LISTENER für Tarnungs-Buttons
+  // ============================================================
+  
+  // "Neu laden" → Tarnung beenden
+  if (reloadBtn) {
+    reloadBtn.addEventListener('click', () => {
+      window.hideTarnung();
+      // Optional: Seite neu laden, um alle States zurückzusetzen
+      // window.location.reload();
+    });
+  }
+
+  // "Details" → Infobox anzeigen
+  if (detailsBtn) {
+    detailsBtn.addEventListener('click', () => {
+      alert(
+        '🔍 FlareChat Tarnung\n\n' +
+        'Diese Seite sieht aus wie ein DNS-Fehler,\n' +
+        'aber in Wirklichkeit ist es der Chat-Modus.\n\n' +
+        '🔐 So funktioniert es:\n' +
+        '• "Tarnung" aktiviert die Fehlerseite\n' +
+        '• "Neu laden" bringt dich zurück\n' +
+        '• Deine Chats bleiben erhalten\n\n' +
+        '🌋 FlareChat – Echtzeit-Chat mit Stil!'
+      );
+    });
+  }
+
+  // ============================================================
+  // KEYBOARD SHORTCUT: ESC → Tarnung beenden
+  // ============================================================
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      const tarnungVisible = tarnung && tarnung.style.display === 'flex';
+      if (tarnungVisible) {
+        window.hideTarnung();
       }
     }
   });
+
+  console.log('✅ Tarnung initialisiert');
 }

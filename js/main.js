@@ -1,14 +1,22 @@
-// frontend/js/ui/main.js
+// js/main.js
 // FlareChat - Hauptsteuerung mit WebSocket, Polling und Durable Object-Räumen
 
 import { CONFIG } from './config.js';
-import { apiFetch } from '../api/client.js';
-import { initTarnung } from './tarnung.js';
-import { initTabs } from './tabs.js';
+import { apiFetch } from './api/client.js';
+import { initTarnung } from './ui/tarnung.js';
+import { initTabs } from './ui/tabs.js';
+import { 
+  displayMessage, 
+  clearChatBox, 
+  displaySystemMessage, 
+  updateRoomTitle,
+  renderMessageHistory,
+  getCurrentRoomName
+} from './ui/chatroom.js';  // ← Korrekter Import aus ui/chatroom.js
 
-import { startPolling, stopPolling, setWebSocketStatus } from '../chat/polling.js';
-import { connectWebSocket, closeWebSocket, switchRoom } from '../chat/wsClient.js';
-import { sendMessage, addMessageToChat, fetchNewMessages, handleWebSocketMessage } from '../chat/messages.js';
+import { startPolling, stopPolling, setWebSocketStatus } from './chat/polling.js';
+import { connectWebSocket, closeWebSocket, switchRoom } from './chat/wsClient.js';
+import { sendMessage, addMessageToChat, fetchNewMessages, handleWebSocketMessage } from './chat/messages.js';
 
 // ============================================================
 // GLOBALER STATE
@@ -26,39 +34,21 @@ const state = {
 window.ws = null;
 
 // Globale Funktionen für Polling und UI
-window.addMessageToChat = (sender, text, avatarUrl) => addMessageToChat(sender, text, avatarUrl, state);
+window.displayMessage = (sender, text, avatarUrl) => displayMessage(sender, text, avatarUrl, state.username);
+window.clearChatBox = clearChatBox;
+window.displaySystemMessage = displaySystemMessage;
+window.updateRoomTitle = updateRoomTitle;
+window.renderMessageHistory = renderMessageHistory;
 window.loadFriends = loadFriends;
 window.loadGroups = loadGroups;
 window.fetchNewMessages = () => fetchNewMessages(state);
 
 // ============================================================
-// RAUMNAMEN FÜR AKTUELLEN CHAT GENERIEREN
-// ============================================================
-function getCurrentRoomName() {
-  const activeTab = document.querySelector('.tab-btn.active')?.dataset.tab;
-  const friendSelect = document.getElementById('friend-select');
-  const groupSelect = document.getElementById('group-select');
-
-  if (activeTab === 'friends') {
-    const friend = friendSelect?.value;
-    if (!friend || friend === '') return null;
-    const sorted = [state.username, friend].sort();
-    return `dm_${sorted[0]}_${sorted[1]}`;
-  } else if (activeTab === 'groups') {
-    const groupId = groupSelect?.value;
-    if (!groupId || groupId === '') return null;
-    return `group_${groupId}`;
-  }
-  return null;
-}
-
-// ============================================================
 // WEBSOCKET-RAUM AKTUALISIEREN
 // ============================================================
 function updateWebSocketRoom() {
-  const roomName = getCurrentRoomName();
+  const roomName = getCurrentRoomName(state);
   if (!roomName) {
-    // Kein Raum ausgewählt – WebSocket schließen
     if (window.ws) {
       closeWebSocket();
       window.ws = null;
@@ -67,17 +57,20 @@ function updateWebSocketRoom() {
     return;
   }
 
-  // Prüfen, ob bereits eine Verbindung zu diesem Raum besteht
+  // Raum-Titel aktualisieren (UI)
+  const displayName = roomName.startsWith('dm_') 
+    ? roomName.replace('dm_', '').replace('_', ' & ') 
+    : roomName.replace('group_', 'Gruppe: ');
+  updateRoomTitle(displayName);
+
   if (window.ws && window.ws.readyState === WebSocket.OPEN) {
-    // Raum wechseln (ohne neue Verbindung)
     switchRoom(roomName);
   } else {
-    // Neue Verbindung aufbauen
     connectWebSocket(state.username, roomName, {
       onOpen: () => {
         console.log('✅ WebSocket aktiv - Polling pausiert');
         state.wsConnected = true;
-        window.ws = ws; // ws wird von connectWebSocket gesetzt
+        window.ws = ws;
       },
       onClose: () => {
         console.log('⚠️ WebSocket getrennt - Polling übernimmt');
@@ -164,17 +157,14 @@ function showChat() {
   document.getElementById('chat-section').style.display = 'flex';
   document.getElementById('display-user').innerText = state.username;
 
-  // Globale Funktionen für UI-Events
   window.loadFriends = loadFriends;
   window.loadGroups = loadGroups;
   window.fetchNewMessages = () => fetchNewMessages(state);
 
-  // Daten laden
   loadFriends();
   loadGroups();
 
-  // WebSocket mit initialem Raum verbinden (falls vorhanden)
-  const roomName = getCurrentRoomName();
+  const roomName = getCurrentRoomName(state);
   if (roomName) {
     connectWebSocket(state.username, roomName, {
       onOpen: () => {
@@ -191,7 +181,6 @@ function showChat() {
     });
   }
 
-  // Polling starten (als Fallback)
   startPolling();
 }
 
@@ -216,13 +205,11 @@ async function loadFriends() {
     friendSelect.appendChild(opt);
   });
 
-  // Auswahl wiederherstellen, falls möglich
   if (currentSelection) {
     const exists = [...friendSelect.options].some(o => o.value === currentSelection);
     if (exists) friendSelect.value = currentSelection;
   }
 
-  // Freundschaftsanfragen anzeigen
   const requestsList = document.getElementById('requests-list');
   const requestsArea = document.getElementById('requests-area');
   if (requestsList && requestsArea) {
@@ -245,7 +232,6 @@ async function loadFriends() {
     }
   }
 
-  // Nach dem Laden den Raum aktualisieren
   updateWebSocketRoom();
 }
 
@@ -275,7 +261,6 @@ async function loadGroups() {
     if (exists) groupSelect.value = currentSelection;
   }
 
-  // Nach dem Laden den Raum aktualisieren
   updateWebSocketRoom();
 }
 
@@ -305,7 +290,7 @@ async function addFriend() {
 }
 
 // ============================================================
-// FRIEND REQUESTS (global für onclick)
+// FRIEND REQUESTS
 // ============================================================
 window.acceptRequest = async (username) => {
   await apiFetch('/respond-friend', 'POST', {
@@ -334,7 +319,6 @@ function handleLogout() {
   state.wsConnected = false;
   window.ws = null;
 
-  // Tarnung anzeigen
   document.getElementById('tarnung').style.display = 'flex';
   document.getElementById('app-box').classList.remove('active');
   document.getElementById('app-box').style.display = 'none';
@@ -359,7 +343,6 @@ async function saveSettings() {
   const statusMsg = document.getElementById('settings-status');
 
   if (newUsername && newUsername !== state.username) {
-    // Username-Änderung (müsste im Backend implementiert werden)
     statusMsg.innerText = '⚠️ Username-Änderung noch nicht implementiert.';
     return;
   }
@@ -374,23 +357,19 @@ async function saveSettings() {
 }
 
 // ============================================================
-// EVENT-LISTENER & INITIALISIERUNG
+// EVENT-LISTENER
 // ============================================================
 document.addEventListener('DOMContentLoaded', () => {
   console.log('🔥 FlareChat gestartet');
 
-  // Tarnung initialisieren
   initTarnung();
 
-  // Login-Button
   const loginBtn = document.getElementById('login-btn');
   if (loginBtn) loginBtn.addEventListener('click', handleLogin);
 
-  // Register-Button
   const registerBtn = document.getElementById('register-btn');
   if (registerBtn) registerBtn.addEventListener('click', handleRegister);
 
-  // Enter-Taste für Login
   document.getElementById('password')?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') loginBtn?.click();
   });
@@ -398,33 +377,22 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.key === 'Enter') loginBtn?.click();
   });
 
-  // Tabs initialisieren
   initTabs();
 
-  // Freundeswechsel → Raum wechseln
   document.getElementById('friend-select')?.addEventListener('change', () => {
-    const chatBox = document.getElementById('chat-box');
-    if (chatBox) {
-      chatBox.innerHTML = '';
-      fetchNewMessages(state);
-    }
+    clearChatBox();
+    fetchNewMessages(state);
     updateWebSocketRoom();
   });
 
-  // Gruppenwechsel → Raum wechseln
   document.getElementById('group-select')?.addEventListener('change', () => {
-    const chatBox = document.getElementById('chat-box');
-    if (chatBox) {
-      chatBox.innerHTML = '';
-      fetchNewMessages(state);
-    }
+    clearChatBox();
+    fetchNewMessages(state);
     updateWebSocketRoom();
   });
 
-  // Freund hinzufügen
   document.getElementById('action-btn')?.addEventListener('click', addFriend);
 
-  // Senden-Button
   const sendBtn = document.getElementById('send-btn');
   const msgInput = document.getElementById('msg-input');
 
@@ -464,15 +432,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Logout / Tarnung
   document.getElementById('logout-btn')?.addEventListener('click', handleLogout);
-
-  // Settings
   document.getElementById('settings-btn')?.addEventListener('click', openSettings);
   document.getElementById('close-settings')?.addEventListener('click', closeSettings);
   document.getElementById('save-settings')?.addEventListener('click', saveSettings);
 
-  // Emoji-Buttons
   document.querySelectorAll('.emoji-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const input = document.getElementById('msg-input');
@@ -483,12 +447,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // Bild-Button (optional)
   document.getElementById('image-btn')?.addEventListener('click', () => {
     document.getElementById('file-input')?.click();
   });
 
-  // Prüfen, ob bereits eingeloggt
   if (state.username) {
     showChat();
   }
@@ -497,4 +459,4 @@ document.addEventListener('DOMContentLoaded', () => {
 // ============================================================
 // EXPORTS (für Tests / Debugging)
 // ============================================================
-export { state, getCurrentRoomName, updateWebSocketRoom };
+export { state, updateWebSocketRoom };

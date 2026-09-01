@@ -1,158 +1,113 @@
-// src/chat-room.js
-// Durable Object für einen einzelnen Chat-Raum (DM oder Gruppe)
+// js/ui/chatroom.js
+// UI-Komponente für die Chat-Raum-Anzeige
 
 /**
- * ChatRoom – Durable Object für einen Chat-Raum
- * 
- * Jede Instanz repräsentiert einen Raum (z.B. DM zwischen zwei Nutzern
- * oder eine Gruppe) und verwaltet:
- * - WebSocket-Verbindungen der Teilnehmer
- * - Nachrichtenverlauf (in SQLite)
- * - Broadcast von Nachrichten an alle Teilnehmer
+ * Zeigt eine Nachricht im Chat-Bereich an
+ * @param {string} sender - Absender der Nachricht
+ * @param {string} text - Nachrichtentext
+ * @param {string} avatarUrl - Avatar-URL des Absenders
+ * @param {string} currentUser - Aktuell eingeloggter Nutzer
  */
-export class ChatRoom {
-  constructor(state, env) {
-    this.state = state;
-    this.env = env;
-    this.sessions = new Map(); // username -> WebSocket
-    this.roomId = state.id.toString();
+export function displayMessage(sender, text, avatarUrl, currentUser) {
+  const chatBox = document.getElementById('chat-box');
+  if (!chatBox) return;
+
+  const div = document.createElement('div');
+  const isMe = sender === currentUser;
+  div.className = `msg ${isMe ? 'me' : 'other'}`;
+
+  if (!avatarUrl) {
+    avatarUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(sender)}&background=ff4500&color=000`;
   }
 
-  /**
-   * Haupt-Entry-Point für Anfragen an das DO
-   */
-  async fetch(request) {
-    const url = new URL(request.url);
-    const path = url.pathname;
+  div.innerHTML = `
+    <div class="msg-sender">
+      <img src="${avatarUrl}" class="msg-avatar" onerror="this.src='https://ui-avatars.com/api/?name=${encodeURIComponent(sender)}&background=ff4500&color=000'">
+      <strong>${sender}</strong>
+    </div>
+    <div class="msg-text">${text}</div>
+  `;
 
-    // --- WebSocket-Handshake ---
-    if (path === '/ws') {
-      const username = url.searchParams.get('username');
-      if (!username) {
-        return new Response('Missing username', { status: 400 });
-      }
+  chatBox.appendChild(div);
+  chatBox.scrollTop = chatBox.scrollHeight;
+}
 
-      // WebSocket-Pair erstellen
-      const pair = new WebSocketPair();
-      const [client, server] = Object.values(pair);
-
-      // Server-WebSocket akzeptieren
-      this.state.acceptWebSocket(server);
-      this.sessions.set(username, server);
-
-      console.log(`🟢 [Room ${this.roomId}] ${username} connected`);
-
-      // Alle anderen im Raum informieren
-      this.broadcast({
-        type: 'user_joined',
-        username: username,
-        timestamp: Date.now()
-      }, username);
-
-      return new Response(null, {
-        status: 101,
-        webSocket: client,
-      });
-    }
-
-    // --- Nachrichtenverlauf abrufen ---
-    if (path === '/messages' && request.method === 'GET') {
-      const messages = await this.state.storage.get('messages') || [];
-      return new Response(JSON.stringify(messages), {
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    return new Response('Not found', { status: 404 });
+/**
+ * Leert den Chat-Bereich
+ */
+export function clearChatBox() {
+  const chatBox = document.getElementById('chat-box');
+  if (chatBox) {
+    chatBox.innerHTML = '';
   }
+}
 
-  /**
-   * Wird aufgerufen, wenn eine WebSocket-Nachricht eintrifft
-   */
-  async webSocketMessage(ws, message) {
-    try {
-      const data = JSON.parse(message);
-      
-      // Nachricht speichern
-      const messages = await this.state.storage.get('messages') || [];
-      const newMessage = {
-        id: Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
-        sender: data.sender || 'unknown',
-        text: data.text,
-        timestamp: Date.now(),
-        type: data.type || 'text'
-      };
-      
-      messages.push(newMessage);
-      
-      // Nur die letzten 1000 Nachrichten behalten
-      if (messages.length > 1000) {
-        messages.splice(0, messages.length - 1000);
-      }
-      await this.state.storage.put('messages', messages);
+/**
+ * Zeigt eine Systemnachricht im Chat an
+ */
+export function displaySystemMessage(text) {
+  const chatBox = document.getElementById('chat-box');
+  if (!chatBox) return;
 
-      // An alle im Raum broadcasten (außer Sender)
-      this.broadcast({
-        type: 'new_message',
-        ...newMessage
-      }, data.sender);
+  const div = document.createElement('div');
+  div.className = 'msg system';
+  div.style.cssText = 'text-align:center;color:#888;font-style:italic;padding:4px 0;font-size:0.8rem;';
+  div.textContent = text;
+  chatBox.appendChild(div);
+  chatBox.scrollTop = chatBox.scrollHeight;
+}
 
-    } catch (error) {
-      console.error('Fehler beim Verarbeiten der Nachricht:', error);
-    }
+/**
+ * Aktualisiert den Titel des Chat-Raums
+ */
+export function updateRoomTitle(roomName) {
+  const titleElement = document.getElementById('room-title');
+  if (titleElement) {
+    titleElement.textContent = roomName;
   }
+}
 
-  /**
-   * Broadcast an alle verbundenen Clients (außer optionalem Sender)
-   */
-  broadcast(data, excludeSender = null) {
-    const message = JSON.stringify(data);
-    for (const [username, ws] of this.sessions) {
-      if (username === excludeSender) continue;
-      try {
-        ws.send(message);
-      } catch (e) {
-        console.error(`Broadcast an ${username} fehlgeschlagen:`, e);
-      }
-    }
-  }
+/**
+ * Rendert eine Liste von Nachrichten (für initialen Verlauf)
+ */
+export function renderMessageHistory(messages, currentUser) {
+  clearChatBox();
+  messages.forEach(msg => {
+    displayMessage(msg.sender, msg.text, msg.avatar_url, currentUser);
+  });
+}
 
-  /**
-   * Wird aufgerufen, wenn eine Verbindung geschlossen wird
-   */
-  async webSocketClose(ws, code, reason, wasClean) {
-    let disconnectedUser = null;
-    for (const [username, session] of this.sessions) {
-      if (session === ws) {
-        disconnectedUser = username;
-        break;
-      }
-    }
-    
-    if (disconnectedUser) {
-      this.sessions.delete(disconnectedUser);
-      console.log(`🔴 [Room ${this.roomId}] ${disconnectedUser} disconnected`);
-      
-      // Andere im Raum informieren
-      this.broadcast({
-        type: 'user_left',
-        username: disconnectedUser,
-        timestamp: Date.now()
-      });
-    }
-  }
+/**
+ * Generiert einen konsistenten Raum-Namen für 1:1-Chats
+ */
+export function getDirectRoomName(user1, user2) {
+  const sorted = [user1, user2].sort();
+  return `dm_${sorted[0]}_${sorted[1]}`;
+}
 
-  /**
-   * Wird aufgerufen, wenn eine WebSocket-Verbindung einen Fehler hat
-   */
-  async webSocketError(ws, error) {
-    console.error(`⚠️ [Room ${this.roomId}] WebSocket error:`, error);
-    // Fehlerhafte Verbindung entfernen
-    for (const [username, session] of this.sessions) {
-      if (session === ws) {
-        this.sessions.delete(username);
-        break;
-      }
-    }
+/**
+ * Generiert einen Raum-Namen für Gruppen-Chats
+ */
+export function getGroupRoomName(groupId) {
+  return `group_${groupId}`;
+}
+
+/**
+ * Ermittelt den aktuellen Raum-Namen basierend auf UI-Auswahl
+ */
+export function getCurrentRoomName(state) {
+  const activeTab = document.querySelector('.tab-btn.active')?.dataset.tab;
+  const friendSelect = document.getElementById('friend-select');
+  const groupSelect = document.getElementById('group-select');
+
+  if (activeTab === 'friends') {
+    const friend = friendSelect?.value;
+    if (!friend || friend === '') return null;
+    return getDirectRoomName(state.username, friend);
+  } else if (activeTab === 'groups') {
+    const groupId = groupSelect?.value;
+    if (!groupId || groupId === '') return null;
+    return getGroupRoomName(groupId);
   }
+  return null;
 }

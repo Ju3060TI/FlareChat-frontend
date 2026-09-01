@@ -1,15 +1,18 @@
-// frontend/js/main.js
-// FlareChat - Einstiegspunkt mit WebSocket & Polling
+// frontend/js/ui/main.js
+// FlareChat - Hauptsteuerung mit WebSocket, Polling und Durable Object-Räumen
 
 import { CONFIG } from './config.js';
-import { apiFetch } from './api/client.js';
-import { initTarnung } from './ui/tarnung.js';
-import { initTabs } from './ui/tabs.js';
+import { apiFetch } from '../api/client.js';
+import { initTarnung } from './tarnung.js';
+import { initTabs } from './tabs.js';
 
-import { startPolling, stopPolling, setWebSocketStatus } from './chat/polling.js';
-import { connectWebSocket, closeWebSocket } from './chat/wsClient.js';
-import { sendMessage, addMessageToChat, fetchNewMessages, handleWebSocketMessage } from './chat/messages.js';
+import { startPolling, stopPolling, setWebSocketStatus } from '../chat/polling.js';
+import { connectWebSocket, closeWebSocket, switchRoom } from '../chat/wsClient.js';
+import { sendMessage, addMessageToChat, fetchNewMessages, handleWebSocketMessage } from '../chat/messages.js';
 
+// ============================================================
+// GLOBALER STATE
+// ============================================================
 const state = {
   username: localStorage.getItem('username') || null,
   avatarUrl: localStorage.getItem('avatar_url') || null,
@@ -19,11 +22,76 @@ const state = {
   wsConnected: false,
 };
 
+// Globale WebSocket-Referenz für messages.js
+window.ws = null;
+
+// Globale Funktionen für Polling und UI
 window.addMessageToChat = (sender, text, avatarUrl) => addMessageToChat(sender, text, avatarUrl, state);
 window.loadFriends = loadFriends;
 window.loadGroups = loadGroups;
 window.fetchNewMessages = () => fetchNewMessages(state);
 
+// ============================================================
+// RAUMNAMEN FÜR AKTUELLEN CHAT GENERIEREN
+// ============================================================
+function getCurrentRoomName() {
+  const activeTab = document.querySelector('.tab-btn.active')?.dataset.tab;
+  const friendSelect = document.getElementById('friend-select');
+  const groupSelect = document.getElementById('group-select');
+
+  if (activeTab === 'friends') {
+    const friend = friendSelect?.value;
+    if (!friend || friend === '') return null;
+    const sorted = [state.username, friend].sort();
+    return `dm_${sorted[0]}_${sorted[1]}`;
+  } else if (activeTab === 'groups') {
+    const groupId = groupSelect?.value;
+    if (!groupId || groupId === '') return null;
+    return `group_${groupId}`;
+  }
+  return null;
+}
+
+// ============================================================
+// WEBSOCKET-RAUM AKTUALISIEREN
+// ============================================================
+function updateWebSocketRoom() {
+  const roomName = getCurrentRoomName();
+  if (!roomName) {
+    // Kein Raum ausgewählt – WebSocket schließen
+    if (window.ws) {
+      closeWebSocket();
+      window.ws = null;
+      state.wsConnected = false;
+    }
+    return;
+  }
+
+  // Prüfen, ob bereits eine Verbindung zu diesem Raum besteht
+  if (window.ws && window.ws.readyState === WebSocket.OPEN) {
+    // Raum wechseln (ohne neue Verbindung)
+    switchRoom(roomName);
+  } else {
+    // Neue Verbindung aufbauen
+    connectWebSocket(state.username, roomName, {
+      onOpen: () => {
+        console.log('✅ WebSocket aktiv - Polling pausiert');
+        state.wsConnected = true;
+        window.ws = ws; // ws wird von connectWebSocket gesetzt
+      },
+      onClose: () => {
+        console.log('⚠️ WebSocket getrennt - Polling übernimmt');
+        state.wsConnected = false;
+        window.ws = null;
+      },
+      onMessage: (data) => handleWebSocketMessage(data, state)
+    });
+  }
+}
+
+// ============================================================
+// LOGIN
+// ============================================================
 async function handleLogin() {
   const usernameInput = document.getElementById('username');
   const passwordInput = document.getElementById('password');
@@ -43,6 +111,10 @@ async function handleLogin() {
   if (result && result.success) {
     state.username = username;
     localStorage.setItem('username', username);
+    if (result.avatar_url) {
+      state.avatarUrl = result.avatar_url;
+      localStorage.setItem('avatar_url', result.avatar_url);
+    }
     statusMsg.innerText = '✅ Erfolgreich eingeloggt!';
     showChat();
   } else {
@@ -50,27 +122,82 @@ async function handleLogin() {
   }
 }
 
+// ============================================================
+// REGISTRIERUNG
+// ============================================================
+async function handleRegister() {
+  const usernameInput = document.getElementById('username');
+  const passwordInput = document.getElementById('password');
+  const statusMsg = document.getElementById('status-msg');
+
+  const username = usernameInput.value.trim();
+  const password = passwordInput.value.trim();
+
+  if (!username || !password) {
+    statusMsg.innerText = '❌ Bitte Username und Passwort eingeben!';
+    return;
+  }
+  if (username.length < 3 || username.length > 20) {
+    statusMsg.innerText = '❌ Username muss 3-20 Zeichen lang sein!';
+    return;
+  }
+  if (!/^[a-zA-Z0-9_.-]+$/.test(username)) {
+    statusMsg.innerText = '❌ Ungültige Zeichen im Username!';
+    return;
+  }
+
+  statusMsg.innerText = '⏳ Registriere...';
+  const result = await apiFetch('/register', 'POST', { username, password });
+
+  if (result && result.success) {
+    statusMsg.innerText = '✅ Registrierung erfolgreich! Jetzt einloggen.';
+  } else {
+    statusMsg.innerText = '❌ ' + (result?.message || 'Registrierung fehlgeschlagen');
+  }
+}
+
+// ============================================================
+// CHAT ANSICHT ANZEIGEN
+// ============================================================
 function showChat() {
   document.getElementById('login-section').style.display = 'none';
   document.getElementById('chat-section').style.display = 'flex';
   document.getElementById('display-user').innerText = state.username;
 
+  // Globale Funktionen für UI-Events
   window.loadFriends = loadFriends;
   window.loadGroups = loadGroups;
   window.fetchNewMessages = () => fetchNewMessages(state);
 
+  // Daten laden
   loadFriends();
   loadGroups();
 
-  connectWebSocket(state.username, {
-    onOpen: () => console.log('✅ WebSocket aktiv - Polling pausiert'),
-    onClose: () => console.log('⚠️ WebSocket getrennt - Polling übernimmt'),
-    onMessage: (data) => handleWebSocketMessage(data, state)
-  });
+  // WebSocket mit initialem Raum verbinden (falls vorhanden)
+  const roomName = getCurrentRoomName();
+  if (roomName) {
+    connectWebSocket(state.username, roomName, {
+      onOpen: () => {
+        console.log('✅ WebSocket aktiv - Polling pausiert');
+        state.wsConnected = true;
+        window.ws = ws;
+      },
+      onClose: () => {
+        console.log('⚠️ WebSocket getrennt - Polling übernimmt');
+        state.wsConnected = false;
+        window.ws = null;
+      },
+      onMessage: (data) => handleWebSocketMessage(data, state)
+    });
+  }
 
-  startPolling(); 
+  // Polling starten (als Fallback)
+  startPolling();
 }
 
+// ============================================================
+// FREUNDE LADEN
+// ============================================================
 async function loadFriends() {
   const username = state.username;
   if (!username) return;
@@ -89,11 +216,13 @@ async function loadFriends() {
     friendSelect.appendChild(opt);
   });
 
+  // Auswahl wiederherstellen, falls möglich
   if (currentSelection) {
     const exists = [...friendSelect.options].some(o => o.value === currentSelection);
     if (exists) friendSelect.value = currentSelection;
   }
 
+  // Freundschaftsanfragen anzeigen
   const requestsList = document.getElementById('requests-list');
   const requestsArea = document.getElementById('requests-area');
   if (requestsList && requestsArea) {
@@ -105,8 +234,8 @@ async function loadFriends() {
         div.innerHTML = `
           <span>${req.username}</span>
           <div>
-            <button onclick="acceptRequest('${req.username}')">✅</button>
-            <button onclick="declineRequest('${req.username}')">❌</button>
+            <button onclick="acceptRequest('${req.username}')" style="background:transparent;border:1px solid #00ff00;color:#00ff00;border-radius:25px;padding:2px 8px;cursor:pointer;">✅</button>
+            <button onclick="declineRequest('${req.username}')" style="background:transparent;border:1px solid #ff0000;color:#ff0000;border-radius:25px;padding:2px 8px;cursor:pointer;">❌</button>
           </div>
         `;
         requestsList.appendChild(div);
@@ -115,8 +244,14 @@ async function loadFriends() {
       requestsArea.style.display = 'none';
     }
   }
+
+  // Nach dem Laden den Raum aktualisieren
+  updateWebSocketRoom();
 }
 
+// ============================================================
+// GRUPPEN LADEN
+// ============================================================
 async function loadGroups() {
   const username = state.username;
   if (!username) return;
@@ -139,31 +274,157 @@ async function loadGroups() {
     const exists = [...groupSelect.options].some(o => o.value === currentSelection);
     if (exists) groupSelect.value = currentSelection;
   }
+
+  // Nach dem Laden den Raum aktualisieren
+  updateWebSocketRoom();
 }
 
+// ============================================================
+// FREUND HINZUFÜGEN
+// ============================================================
+async function addFriend() {
+  const input = document.getElementById('add-input');
+  const friendUsername = input.value.trim();
+  if (!friendUsername) {
+    alert('Bitte einen Usernamen eingeben!');
+    return;
+  }
+
+  const result = await apiFetch('/add-friend', 'POST', {
+    myUsername: state.username,
+    friendUsername: friendUsername
+  });
+
+  if (result === 'OK' || result?.success) {
+    alert('✅ Freundschaftsanfrage gesendet!');
+    input.value = '';
+    loadFriends();
+  } else {
+    alert('❌ Fehler: ' + (result?.message || result || 'Unbekannter Fehler'));
+  }
+}
+
+// ============================================================
+// FRIEND REQUESTS (global für onclick)
+// ============================================================
+window.acceptRequest = async (username) => {
+  await apiFetch('/respond-friend', 'POST', {
+    myUsername: state.username,
+    requesterUsername: username,
+    accept: true
+  });
+  loadFriends();
+};
+
+window.declineRequest = async (username) => {
+  await apiFetch('/respond-friend', 'POST', {
+    myUsername: state.username,
+    requesterUsername: username,
+    accept: false
+  });
+  loadFriends();
+};
+
+// ============================================================
+// LOGOUT / TARNUNG
+// ============================================================
+function handleLogout() {
+  closeWebSocket();
+  stopPolling();
+  state.wsConnected = false;
+  window.ws = null;
+
+  // Tarnung anzeigen
+  document.getElementById('tarnung').style.display = 'flex';
+  document.getElementById('app-box').classList.remove('active');
+  document.getElementById('app-box').style.display = 'none';
+}
+
+// ============================================================
+// SETTINGS
+// ============================================================
+function openSettings() {
+  document.getElementById('settings-popup').style.display = 'block';
+  document.getElementById('new-username').value = state.username || '';
+  document.getElementById('new-avatar').value = state.avatarUrl || '';
+}
+
+function closeSettings() {
+  document.getElementById('settings-popup').style.display = 'none';
+}
+
+async function saveSettings() {
+  const newUsername = document.getElementById('new-username').value.trim();
+  const newAvatar = document.getElementById('new-avatar').value.trim();
+  const statusMsg = document.getElementById('settings-status');
+
+  if (newUsername && newUsername !== state.username) {
+    // Username-Änderung (müsste im Backend implementiert werden)
+    statusMsg.innerText = '⚠️ Username-Änderung noch nicht implementiert.';
+    return;
+  }
+
+  if (newAvatar) {
+    state.avatarUrl = newAvatar;
+    localStorage.setItem('avatar_url', newAvatar);
+    statusMsg.innerText = '✅ Avatar aktualisiert!';
+  }
+
+  closeSettings();
+}
+
+// ============================================================
+// EVENT-LISTENER & INITIALISIERUNG
+// ============================================================
 document.addEventListener('DOMContentLoaded', () => {
   console.log('🔥 FlareChat gestartet');
 
+  // Tarnung initialisieren
   initTarnung();
 
+  // Login-Button
   const loginBtn = document.getElementById('login-btn');
   if (loginBtn) loginBtn.addEventListener('click', handleLogin);
 
+  // Register-Button
+  const registerBtn = document.getElementById('register-btn');
+  if (registerBtn) registerBtn.addEventListener('click', handleRegister);
+
+  // Enter-Taste für Login
   document.getElementById('password')?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') loginBtn?.click();
   });
+  document.getElementById('username')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') loginBtn?.click();
+  });
 
+  // Tabs initialisieren
   initTabs();
 
+  // Freundeswechsel → Raum wechseln
   document.getElementById('friend-select')?.addEventListener('change', () => {
     const chatBox = document.getElementById('chat-box');
-    if (chatBox) { chatBox.innerHTML = ''; fetchNewMessages(); }
-  });
-  document.getElementById('group-select')?.addEventListener('change', () => {
-    const chatBox = document.getElementById('chat-box');
-    if (chatBox) { chatBox.innerHTML = ''; fetchNewMessages(); }
+    if (chatBox) {
+      chatBox.innerHTML = '';
+      fetchNewMessages(state);
+    }
+    updateWebSocketRoom();
   });
 
+  // Gruppenwechsel → Raum wechseln
+  document.getElementById('group-select')?.addEventListener('change', () => {
+    const chatBox = document.getElementById('chat-box');
+    if (chatBox) {
+      chatBox.innerHTML = '';
+      fetchNewMessages(state);
+    }
+    updateWebSocketRoom();
+  });
+
+  // Freund hinzufügen
+  document.getElementById('action-btn')?.addEventListener('click', addFriend);
+
+  // Senden-Button
   const sendBtn = document.getElementById('send-btn');
   const msgInput = document.getElementById('msg-input');
 
@@ -178,11 +439,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (activeTab === 'friends') {
         const receiver = friendSelect.value;
-        if (!receiver) { alert('Bitte erst einen Freund auswählen!'); return; }
+        if (!receiver || receiver === '') {
+          alert('Bitte erst einen Freund auswählen!');
+          return;
+        }
         await sendMessage(text, receiver, 'friend', state);
       } else {
         const groupId = groupSelect.value;
-        if (!groupId) { alert('Bitte erst eine Gruppe auswählen!'); return; }
+        if (!groupId || groupId === '') {
+          alert('Bitte erst eine Gruppe auswählen!');
+          return;
+        }
         await sendMessage(text, groupId, 'group', state);
       }
 
@@ -196,13 +463,38 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
   }
+
+  // Logout / Tarnung
+  document.getElementById('logout-btn')?.addEventListener('click', handleLogout);
+
+  // Settings
+  document.getElementById('settings-btn')?.addEventListener('click', openSettings);
+  document.getElementById('close-settings')?.addEventListener('click', closeSettings);
+  document.getElementById('save-settings')?.addEventListener('click', saveSettings);
+
+  // Emoji-Buttons
+  document.querySelectorAll('.emoji-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const input = document.getElementById('msg-input');
+      if (input) {
+        input.value += btn.textContent;
+        input.focus();
+      }
+    });
+  });
+
+  // Bild-Button (optional)
+  document.getElementById('image-btn')?.addEventListener('click', () => {
+    document.getElementById('file-input')?.click();
+  });
+
+  // Prüfen, ob bereits eingeloggt
+  if (state.username) {
+    showChat();
+  }
 });
 
-window.acceptRequest = async (username) => {
-  await apiFetch('/respond-friend', 'POST', { myUsername: state.username, requesterUsername: username, accept: true });
-  loadFriends();
-};
-window.declineRequest = async (username) => {
-  await apiFetch('/respond-friend', 'POST', { myUsername: state.username, requesterUsername: username, accept: false });
-  loadFriends();
-};
+// ============================================================
+// EXPORTS (für Tests / Debugging)
+// ============================================================
+export { state, getCurrentRoomName, updateWebSocketRoom };

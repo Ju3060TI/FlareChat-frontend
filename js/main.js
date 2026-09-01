@@ -12,7 +12,7 @@ import {
   updateRoomTitle,
   renderMessageHistory,
   getCurrentRoomName
-} from './ui/chatroom.js';  // ← Korrekter Import aus ui/chatroom.js
+} from './ui/chatroom.js';
 
 import { startPolling, stopPolling, setWebSocketStatus } from './chat/polling.js';
 import { connectWebSocket, closeWebSocket, switchRoom } from './chat/wsClient.js';
@@ -314,14 +314,30 @@ window.declineRequest = async (username) => {
 // LOGOUT / TARNUNG
 // ============================================================
 function handleLogout() {
+  console.log('🕵️ Logout / Tarnung wird aktiviert...');
+  
+  // WebSocket schließen
   closeWebSocket();
   stopPolling();
   state.wsConnected = false;
   window.ws = null;
 
-  document.getElementById('tarnung').style.display = 'flex';
-  document.getElementById('app-box').classList.remove('active');
-  document.getElementById('app-box').style.display = 'none';
+  // Tarnung anzeigen (ruft showTarnung auf)
+  if (typeof window.showTarnung === 'function') {
+    window.showTarnung();
+  } else {
+    // Fallback: direkt die Elemente ansprechen
+    const tarnung = document.getElementById('tarnung');
+    const appBox = document.getElementById('app-box');
+    if (tarnung) {
+      tarnung.style.display = 'flex';
+      tarnung.style.zIndex = '9999';
+    }
+    if (appBox) {
+      appBox.style.display = 'none';
+      appBox.classList.remove('active');
+    }
+  }
 }
 
 // ============================================================
@@ -362,14 +378,18 @@ async function saveSettings() {
 document.addEventListener('DOMContentLoaded', () => {
   console.log('🔥 FlareChat gestartet');
 
+  // Tarnung initialisieren
   initTarnung();
 
+  // Login-Button
   const loginBtn = document.getElementById('login-btn');
   if (loginBtn) loginBtn.addEventListener('click', handleLogin);
 
+  // Register-Button
   const registerBtn = document.getElementById('register-btn');
   if (registerBtn) registerBtn.addEventListener('click', handleRegister);
 
+  // Enter-Taste für Login
   document.getElementById('password')?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') loginBtn?.click();
   });
@@ -377,22 +397,27 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.key === 'Enter') loginBtn?.click();
   });
 
+  // Tabs initialisieren
   initTabs();
 
+  // Freundeswechsel → Raum wechseln
   document.getElementById('friend-select')?.addEventListener('change', () => {
     clearChatBox();
     fetchNewMessages(state);
     updateWebSocketRoom();
   });
 
+  // Gruppenwechsel → Raum wechseln
   document.getElementById('group-select')?.addEventListener('change', () => {
     clearChatBox();
     fetchNewMessages(state);
     updateWebSocketRoom();
   });
 
+  // Freund hinzufügen
   document.getElementById('action-btn')?.addEventListener('click', addFriend);
 
+  // Senden-Button
   const sendBtn = document.getElementById('send-btn');
   const msgInput = document.getElementById('msg-input');
 
@@ -432,11 +457,15 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // Logout / Tarnung
   document.getElementById('logout-btn')?.addEventListener('click', handleLogout);
+
+  // Settings
   document.getElementById('settings-btn')?.addEventListener('click', openSettings);
   document.getElementById('close-settings')?.addEventListener('click', closeSettings);
   document.getElementById('save-settings')?.addEventListener('click', saveSettings);
 
+  // Emoji-Buttons
   document.querySelectorAll('.emoji-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const input = document.getElementById('msg-input');
@@ -447,10 +476,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  // Bild-Button
   document.getElementById('image-btn')?.addEventListener('click', () => {
     document.getElementById('file-input')?.click();
   });
 
+  // Prüfen, ob bereits eingeloggt
   if (state.username) {
     showChat();
   }

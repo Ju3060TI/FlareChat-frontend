@@ -1,22 +1,29 @@
 // frontend/js/chat/wsClient.js
-// WebSocket-Client mit automatischem Fallback auf Polling
+// WebSocket-Client mit Raum-Unterstützung für Durable Objects
 
-// ✅ Import aus demselben Ordner
 import { setWebSocketStatus } from './polling.js';
 
 let ws = null;
 let reconnectTimer = null;
 let username = null;
+let currentRoom = null;
 let callbacks = {};
 
 /**
- * Baut eine WebSocket-Verbindung auf.
+ * Baut eine WebSocket-Verbindung zu einem bestimmten Raum auf.
  * @param {string} user - Der eingeloggte Username
+ * @param {string} roomName - Der Chat-Raum (z.B. 'dm_user1_user2' oder 'group_123')
  * @param {object} cb - Callback-Funktionen (onMessage, onOpen, onClose)
  */
-export function connectWebSocket(user, cb = {}) {
+export function connectWebSocket(user, roomName, cb = {}) {
   username = user;
+  currentRoom = roomName;
   callbacks = cb;
+
+  if (!roomName) {
+    console.warn('⚠️ Kein Raumname angegeben, WebSocket wird nicht verbunden.');
+    return;
+  }
 
   // Falls bereits eine Verbindung offen ist, schließen
   if (ws) {
@@ -24,24 +31,18 @@ export function connectWebSocket(user, cb = {}) {
     ws = null;
   }
 
-  // WebSocket-URL aufbauen (wss:// für HTTPS)
-  const wsUrl = `wss://flarechatbackend.ju-labs.workers.dev/ws?username=${encodeURIComponent(user)}`;
+  // WebSocket-URL mit Raum und Nutzer
+  const wsUrl = `wss://flarechatbackend.ju-labs.workers.dev/ws?room=${encodeURIComponent(roomName)}&username=${encodeURIComponent(user)}`;
   
   try {
     ws = new WebSocket(wsUrl);
 
-    // ============================================================
-    // ON OPEN - Verbindung erfolgreich
-    // ============================================================
     ws.onopen = () => {
-      console.log('🟢 WebSocket verbunden!');
-      setWebSocketStatus(true); // Polling stoppen
+      console.log(`🟢 WebSocket verbunden (Raum: ${roomName})`);
+      setWebSocketStatus(true);
       if (callbacks.onOpen) callbacks.onOpen();
     };
 
-    // ============================================================
-    // ON MESSAGE - Neue Nachricht vom Server
-    // ============================================================
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
@@ -55,36 +56,39 @@ export function connectWebSocket(user, cb = {}) {
       }
     };
 
-    // ============================================================
-    // ON ERROR - Verbindungsfehler
-    // ============================================================
     ws.onerror = (error) => {
       console.error('🔴 WebSocket Fehler:', error);
-      // Bei Fehler nicht sofort schließen, sondern abwarten
     };
 
-    // ============================================================
-    // ON CLOSE - Verbindung getrennt (startet Fallback)
-    // ============================================================
     ws.onclose = (event) => {
       console.log(`🔴 WebSocket getrennt (Code: ${event.code}). Polling wird aktiviert.`);
-      setWebSocketStatus(false); // Polling starten
+      setWebSocketStatus(false);
 
       if (callbacks.onClose) callbacks.onClose();
 
-      // Versuche nach 5 Sekunden erneut zu verbinden (falls nicht manuell geschlossen)
-      if (event.code !== 1000) { // 1000 = normaler Close
+      if (event.code !== 1000) {
         if (reconnectTimer) clearTimeout(reconnectTimer);
         reconnectTimer = setTimeout(() => {
           console.log('🔄 Versuche WebSocket-Neuverbindung...');
-          connectWebSocket(username, callbacks);
-        }, 5000); // 5 Sekunden warten
+          connectWebSocket(username, currentRoom, callbacks);
+        }, 5000);
       }
     };
 
   } catch (error) {
     console.error('WebSocket Initialisierungsfehler:', error);
-    setWebSocketStatus(false); // Fallback auf Polling
+    setWebSocketStatus(false);
+  }
+}
+
+/**
+ * Raum wechseln (ohne manuelles Schließen)
+ */
+export function switchRoom(newRoomName) {
+  if (currentRoom === newRoomName) return;
+  currentRoom = newRoomName;
+  if (ws) {
+    connectWebSocket(username, newRoomName, callbacks);
   }
 }
 
@@ -97,7 +101,7 @@ export function closeWebSocket() {
     reconnectTimer = null;
   }
   if (ws) {
-    ws.close(1000); // 1000 = Normaler, sauberer Close
+    ws.close(1000);
     ws = null;
   }
   setWebSocketStatus(false);

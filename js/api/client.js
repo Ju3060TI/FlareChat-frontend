@@ -1,5 +1,4 @@
-// frontend/js/client.js
-// Zentraler API-Client für alle Backend-Anfragen
+// js/api/client.js
 
 import { CONFIG } from '../config.js';
 
@@ -17,7 +16,12 @@ export async function apiFetch(endpoint, method = 'POST', bodyData = null) {
   }
 
   try {
-    const response = await fetch(`${CONFIG.API_BASE}${endpoint}`, options);
+    // ============================================================
+    // 🔧 FIX: Entfernt doppelte Slashes in der URL
+    // ============================================================
+    const url = `${CONFIG.API_BASE}${endpoint}`.replace(/\/+/g, '/');
+    
+    const response = await fetch(url, options);
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(`HTTP ${response.status}: ${errorText}`);

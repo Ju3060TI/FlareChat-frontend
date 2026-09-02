@@ -1,10 +1,8 @@
-// frontend/js/config.js
-// Zentrale Konfiguration für FlareChat
+// js/config.js
 
 export const CONFIG = {
-  // ✅ NEUE URL (dein frisch deployter Worker)
-  API_BASE: 'https://flarechat-backend.ju-labs.workers.dev/',
-
-  // Polling-Intervall in Millisekunden (wie gehabt)
+  // ✅ OHNE Slash am Ende!
+  API_BASE: 'https://flarechat-backend.ju-labs.workers.dev',
+  
   POLL_INTERVAL: 350,
 };

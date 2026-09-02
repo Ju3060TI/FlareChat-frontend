@@ -2,7 +2,7 @@
 // FlareChat - Hauptsteuerung mit WebSocket, Polling und Durable Object-Räumen
 
 import { CONFIG } from './config.js';
-import { apiFetch } from './api/client.js';
+import { apiFetch, apiGet } from './api/client.js';
 import { initTarnung } from './ui/tarnung.js';
 import { initTabs } from './ui/tabs.js';
 import { 
@@ -33,6 +33,21 @@ const state = {
 // Globale WebSocket-Referenz für messages.js
 window.ws = null;
 
+// ============================================================
+// HELPER: Fehlerbehandlung
+// ============================================================
+function handleApiError(data, defaultMessage = 'Unbekannter Fehler') {
+  if (!data) {
+    console.error('❌ Keine Antwort vom Server');
+    return true;
+  }
+  if (data.error) {
+    console.error('❌ Fehler:', data.message || defaultMessage);
+    return true;
+  }
+  return false;
+}
+
 // Globale Funktionen für Polling und UI
 window.displayMessage = (sender, text, avatarUrl) => displayMessage(sender, text, avatarUrl, state.username);
 window.clearChatBox = clearChatBox;
@@ -57,7 +72,6 @@ function updateWebSocketRoom() {
     return;
   }
 
-  // Raum-Titel aktualisieren (UI)
   const displayName = roomName.startsWith('dm_') 
     ? roomName.replace('dm_', '').replace('_', ' & ') 
     : roomName.replace('group_', 'Gruppe: ');
@@ -101,7 +115,12 @@ async function handleLogin() {
   statusMsg.innerText = '⏳ Einloggen...';
   const result = await apiFetch('/login', 'POST', { username, password });
 
-  if (result && result.success) {
+  if (!result || result.error) {
+    statusMsg.innerText = '❌ ' + (result?.message || 'Login fehlgeschlagen');
+    return;
+  }
+
+  if (result.success) {
     state.username = username;
     localStorage.setItem('username', username);
     if (result.avatar_url) {
@@ -142,7 +161,12 @@ async function handleRegister() {
   statusMsg.innerText = '⏳ Registriere...';
   const result = await apiFetch('/register', 'POST', { username, password });
 
-  if (result && result.success) {
+  if (!result || result.error) {
+    statusMsg.innerText = '❌ ' + (result?.message || 'Registrierung fehlgeschlagen');
+    return;
+  }
+
+  if (result.success) {
     statusMsg.innerText = '✅ Registrierung erfolgreich! Jetzt einloggen.';
   } else {
     statusMsg.innerText = '❌ ' + (result?.message || 'Registrierung fehlgeschlagen');
@@ -185,14 +209,20 @@ function showChat() {
 }
 
 // ============================================================
-// FREUNDE LADEN
+// FREUNDE LADEN (MIT FEHLERBEHANDLUNG)
 // ============================================================
 async function loadFriends() {
   const username = state.username;
   if (!username) return;
 
   const data = await apiFetch('/friends', 'POST', { username });
-  if (!data) return;
+  
+  // ============================================================
+  // 🔧 FIX: Fehlerbehandlung
+  // ============================================================
+  if (handleApiError(data, 'Freunde konnten nicht geladen werden')) {
+    return;
+  }
 
   const friendSelect = document.getElementById('friend-select');
   const currentSelection = friendSelect.value;
@@ -236,14 +266,20 @@ async function loadFriends() {
 }
 
 // ============================================================
-// GRUPPEN LADEN
+// GRUPPEN LADEN (MIT FEHLERBEHANDLUNG)
 // ============================================================
 async function loadGroups() {
   const username = state.username;
   if (!username) return;
 
   const data = await apiFetch('/my-groups', 'POST', { username });
-  if (!data) return;
+  
+  // ============================================================
+  // 🔧 FIX: Fehlerbehandlung
+  // ============================================================
+  if (handleApiError(data, 'Gruppen konnten nicht geladen werden')) {
+    return;
+  }
 
   const groupSelect = document.getElementById('group-select');
   const currentSelection = groupSelect.value;
@@ -280,12 +316,13 @@ async function addFriend() {
     friendUsername: friendUsername
   });
 
-  if (result === 'OK' || result?.success) {
+  if (result === 'Friend request sent' || result?.success) {
     alert('✅ Freundschaftsanfrage gesendet!');
     input.value = '';
     loadFriends();
   } else {
-    alert('❌ Fehler: ' + (result?.message || result || 'Unbekannter Fehler'));
+    const msg = result?.message || result || 'Unbekannter Fehler';
+    alert('❌ Fehler: ' + msg);
   }
 }
 
@@ -293,21 +330,29 @@ async function addFriend() {
 // FRIEND REQUESTS
 // ============================================================
 window.acceptRequest = async (username) => {
-  await apiFetch('/respond-friend', 'POST', {
+  const result = await apiFetch('/respond-friend', 'POST', {
     myUsername: state.username,
     requesterUsername: username,
     accept: true
   });
-  loadFriends();
+  if (result === 'Friend request accepted' || result?.success) {
+    loadFriends();
+  } else {
+    alert('❌ Fehler beim Annehmen der Anfrage');
+  }
 };
 
 window.declineRequest = async (username) => {
-  await apiFetch('/respond-friend', 'POST', {
+  const result = await apiFetch('/respond-friend', 'POST', {
     myUsername: state.username,
     requesterUsername: username,
     accept: false
   });
-  loadFriends();
+  if (result === 'Friend request declined' || result?.success) {
+    loadFriends();
+  } else {
+    alert('❌ Fehler beim Ablehnen der Anfrage');
+  }
 };
 
 // ============================================================
@@ -316,17 +361,14 @@ window.declineRequest = async (username) => {
 function handleLogout() {
   console.log('🕵️ Logout / Tarnung wird aktiviert...');
   
-  // WebSocket schließen
   closeWebSocket();
   stopPolling();
   state.wsConnected = false;
   window.ws = null;
 
-  // Tarnung anzeigen (ruft showTarnung auf)
   if (typeof window.showTarnung === 'function') {
     window.showTarnung();
   } else {
-    // Fallback: direkt die Elemente ansprechen
     const tarnung = document.getElementById('tarnung');
     const appBox = document.getElementById('app-box');
     if (tarnung) {
@@ -378,18 +420,14 @@ async function saveSettings() {
 document.addEventListener('DOMContentLoaded', () => {
   console.log('🔥 FlareChat gestartet');
 
-  // Tarnung initialisieren
   initTarnung();
 
-  // Login-Button
   const loginBtn = document.getElementById('login-btn');
   if (loginBtn) loginBtn.addEventListener('click', handleLogin);
 
-  // Register-Button
   const registerBtn = document.getElementById('register-btn');
   if (registerBtn) registerBtn.addEventListener('click', handleRegister);
 
-  // Enter-Taste für Login
   document.getElementById('password')?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') loginBtn?.click();
   });
@@ -397,27 +435,22 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.key === 'Enter') loginBtn?.click();
   });
 
-  // Tabs initialisieren
   initTabs();
 
-  // Freundeswechsel → Raum wechseln
   document.getElementById('friend-select')?.addEventListener('change', () => {
     clearChatBox();
     fetchNewMessages(state);
     updateWebSocketRoom();
   });
 
-  // Gruppenwechsel → Raum wechseln
   document.getElementById('group-select')?.addEventListener('change', () => {
     clearChatBox();
     fetchNewMessages(state);
     updateWebSocketRoom();
   });
 
-  // Freund hinzufügen
   document.getElementById('action-btn')?.addEventListener('click', addFriend);
 
-  // Senden-Button
   const sendBtn = document.getElementById('send-btn');
   const msgInput = document.getElementById('msg-input');
 
@@ -457,15 +490,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Logout / Tarnung
   document.getElementById('logout-btn')?.addEventListener('click', handleLogout);
-
-  // Settings
   document.getElementById('settings-btn')?.addEventListener('click', openSettings);
   document.getElementById('close-settings')?.addEventListener('click', closeSettings);
   document.getElementById('save-settings')?.addEventListener('click', saveSettings);
 
-  // Emoji-Buttons
   document.querySelectorAll('.emoji-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const input = document.getElementById('msg-input');
@@ -476,12 +505,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // Bild-Button
   document.getElementById('image-btn')?.addEventListener('click', () => {
     document.getElementById('file-input')?.click();
   });
 
-  // Prüfen, ob bereits eingeloggt
   if (state.username) {
     showChat();
   }

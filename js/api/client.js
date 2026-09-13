@@ -32,7 +32,7 @@ export async function apiFetch(endpoint, method = 'POST', bodyData = null) {
   // ============================================================
   // URL (mit Doppel-Slash-Schutz)
   // ============================================================
-  const url = `${CONFIG.API_BASE}${endpoint}`.replace(/\/+/g, '/');
+  const url = `${CONFIG.API_BASE}${endpoint}`.replace(/([^:]\/)\/+/g, '$1');
 
   try {
     console.log(`[API] 📤 ${method} ${url}`, bodyData || '');
@@ -60,6 +60,7 @@ export async function apiFetch(endpoint, method = 'POST', bodyData = null) {
 
     // Leere Antwort
     if (!text || text.trim() === '') {
+      console.log(`[API] 📥 ${method} ${endpoint} → (leer)`);
       return null;
     }
 
@@ -74,10 +75,26 @@ export async function apiFetch(endpoint, method = 'POST', bodyData = null) {
       return text;
     }
   } catch (error) {
+    // ============================================================
+    // CORS-FEHLER ERKENNEN
+    // ============================================================
+    let errorMessage = error.message || 'Unbekannter Fehler';
+    
+    if (errorMessage.includes('Failed to fetch') || 
+        errorMessage.includes('NetworkError') ||
+        errorMessage.includes('CORS')) {
+      console.error(`[API] 💥 CORS-Fehler bei ${method} ${endpoint}:`, error);
+      return {
+        error: true,
+        message: 'CORS-Fehler: Backend erlaubt keine Anfragen von dieser Domain.',
+        isCorsError: true,
+      };
+    }
+
     console.error(`[API] 💥 Fehler bei ${method} ${endpoint}:`, error);
     return {
       error: true,
-      message: error.message || 'Unbekannter Fehler',
+      message: errorMessage,
     };
   }
 }

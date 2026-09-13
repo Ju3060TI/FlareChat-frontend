@@ -1,4 +1,4 @@
-// frontend/js/chat/polling.js
+// js/chat/polling.js
 // Intelligenter Polling-Manager mit Verbindungs-Wiederherstellung
 
 let intervalId = null;
@@ -35,15 +35,22 @@ export function startPolling() {
   console.log('▶️ Polling gestartet (350ms) - Fallback-Modus');
 
   intervalId = setInterval(() => {
+    // ============================================================
+    // 🔧 FIX: Nur laden, wenn User eingeloggt ist
+    // ============================================================
+    const username = localStorage.getItem('username');
+    if (!username) return;
+
     const chatBox = document.getElementById('chat-box');
-    const isChatOpen = chatBox && chatBox.style.display !== 'none' && chatBox.children.length > 0;
+    const isChatOpen = chatBox && chatBox.children.length > 0;
 
     if (isChatOpen) {
-      // Wird von main.js als globale Funktion bereitgestellt
+      // Chat ist offen -> nur neue Nachrichten laden
       if (typeof window.fetchNewMessages === 'function') {
         window.fetchNewMessages();
       }
     } else {
+      // Kein Chat offen -> Freunde & Gruppen aktualisieren
       if (typeof window.loadFriends === 'function') {
         window.loadFriends();
       }

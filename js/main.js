@@ -37,12 +37,13 @@ window.ws = null;
 // HELPER: Fehlerbehandlung
 // ============================================================
 function handleApiError(data, defaultMessage = 'Unbekannter Fehler') {
-  if (!data) {
-    console.error('❌ Keine Antwort vom Server');
-    return true;
+  // NULL/undefined ist KEIN Fehler!
+  if (data === null || data === undefined) {
+    return false;
   }
+  // Fehler nur loggen, NICHT alerten (sonst Spam!)
   if (data.error) {
-    console.error('❌ Fehler:', data.message || defaultMessage);
+    console.warn(`⚠️ API-Fehler: ${data.message || defaultMessage}`);
     return true;
   }
   return false;
@@ -63,6 +64,8 @@ window.fetchNewMessages = () => fetchNewMessages(state);
 // ============================================================
 function updateWebSocketRoom() {
   const roomName = getCurrentRoomName(state);
+  
+  // Wenn kein Raum, WebSocket schließen
   if (!roomName) {
     if (window.ws) {
       closeWebSocket();
@@ -77,19 +80,23 @@ function updateWebSocketRoom() {
     : roomName.replace('group_', 'Gruppe: ');
   updateRoomTitle(displayName);
 
+  // WebSocket nur verbinden, wenn nicht schon verbunden
   if (window.ws && window.ws.readyState === WebSocket.OPEN) {
     switchRoom(roomName);
   } else {
+    console.log(`🔌 Verbinde WebSocket für Raum: ${roomName}`);
     connectWebSocket(state.username, roomName, {
       onOpen: () => {
         console.log('✅ WebSocket aktiv - Polling pausiert');
         state.wsConnected = true;
         window.ws = ws;
+        stopPolling();
       },
       onClose: () => {
         console.log('⚠️ WebSocket getrennt - Polling übernimmt');
         state.wsConnected = false;
         window.ws = null;
+        startPolling();
       },
       onMessage: (data) => handleWebSocketMessage(data, state)
     });
@@ -185,31 +192,36 @@ function showChat() {
   window.loadGroups = loadGroups;
   window.fetchNewMessages = () => fetchNewMessages(state);
 
-  loadFriends();
-  loadGroups();
-
-  const roomName = getCurrentRoomName(state);
-  if (roomName) {
-    connectWebSocket(state.username, roomName, {
-      onOpen: () => {
-        console.log('✅ WebSocket aktiv - Polling pausiert');
-        state.wsConnected = true;
-        window.ws = ws;
-      },
-      onClose: () => {
-        console.log('⚠️ WebSocket getrennt - Polling übernimmt');
-        state.wsConnected = false;
-        window.ws = null;
-      },
-      onMessage: (data) => handleWebSocketMessage(data, state)
+  // Erst Freunde/Gruppen laden, DANN WebSocket verbinden
+  loadFriends().then(() => {
+    loadGroups().then(() => {
+      const roomName = getCurrentRoomName(state);
+      if (roomName) {
+        connectWebSocket(state.username, roomName, {
+          onOpen: () => {
+            console.log('✅ WebSocket aktiv - Polling pausiert');
+            state.wsConnected = true;
+            window.ws = ws;
+            stopPolling();
+          },
+          onClose: () => {
+            console.log('⚠️ WebSocket getrennt - Polling übernimmt');
+            state.wsConnected = false;
+            window.ws = null;
+            startPolling();
+          },
+          onMessage: (data) => handleWebSocketMessage(data, state)
+        });
+      } else {
+        console.log('ℹ️ Kein Raum ausgewählt - WebSocket wird später verbunden');
+        startPolling();
+      }
     });
-  }
-
-  startPolling();
+  });
 }
 
 // ============================================================
-// FREUNDE LADEN (MIT FEHLERBEHANDLUNG)
+// FREUNDE LADEN
 // ============================================================
 async function loadFriends() {
   const username = state.username;
@@ -217,14 +229,17 @@ async function loadFriends() {
 
   const data = await apiFetch('/friends', 'POST', { username });
   
-  // ============================================================
-  // 🔧 FIX: Fehlerbehandlung
-  // ============================================================
-  if (handleApiError(data, 'Freunde konnten nicht geladen werden')) {
+  // NULL = leere Liste, KEIN Fehler!
+  if (!data || data.error) {
+    if (data?.error) {
+      console.warn('⚠️ Freunde konnten nicht geladen werden:', data.message);
+    }
     return;
   }
 
   const friendSelect = document.getElementById('friend-select');
+  if (!friendSelect) return;
+  
   const currentSelection = friendSelect.value;
   friendSelect.innerHTML = '<option value="">Freund auswählen...</option>';
 
@@ -266,7 +281,7 @@ async function loadFriends() {
 }
 
 // ============================================================
-// GRUPPEN LADEN (MIT FEHLERBEHANDLUNG)
+// GRUPPEN LADEN
 // ============================================================
 async function loadGroups() {
   const username = state.username;
@@ -274,14 +289,17 @@ async function loadGroups() {
 
   const data = await apiFetch('/my-groups', 'POST', { username });
   
-  // ============================================================
-  // 🔧 FIX: Fehlerbehandlung
-  // ============================================================
-  if (handleApiError(data, 'Gruppen konnten nicht geladen werden')) {
+  // NULL = leere Liste, KEIN Fehler!
+  if (!data || data.error) {
+    if (data?.error) {
+      console.warn('⚠️ Gruppen konnten nicht geladen werden:', data.message);
+    }
     return;
   }
 
   const groupSelect = document.getElementById('group-select');
+  if (!groupSelect) return;
+  
   const currentSelection = groupSelect.value;
   groupSelect.innerHTML = '<option value="">Gruppe auswählen...</option>';
 
